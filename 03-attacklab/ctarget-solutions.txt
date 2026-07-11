@@ -1,0 +1,8 @@
+Phase 1 (touch1):
+-- TODO: hex exploit string --
+
+Phase 2 (touch2):
+-- TODO: hex exploit string --
+
+Phase 3 (touch3):
+-- TODO: hex exploit string --
