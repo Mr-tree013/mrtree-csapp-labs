@@ -1,26 +1,34 @@
-#ifndef BITS_H
-#define BITS_H
-
 /*
- * 位操作函数声明
- * 约束: 只能使用 ! ~ & ^ | + << >>
+ * CS:APP Data Lab
  */
 
-int  bitAnd(int x, int y);
-int  bitXor(int x, int y);
-int  thirdBits(void);
-int  fitsBits(int x, int n);
-int  sign(int x);
-int  getByte(int x, int n);
-int  logicalShift(int x, int n);
-int  addOK(int x, int y);
-int  bang(int x);
-int  conditional(int x, int y, int z);
-int  isPower2(int x);
-
-/* 浮点数操作 */
-unsigned float_neg(unsigned uf);
-unsigned float_i2f(int x);
-unsigned float_twice(unsigned uf);
-
-#endif
+int bitAnd(int, int);
+int test_bitAnd(int, int);
+int getByte(int, int);
+int test_getByte(int, int);
+int logicalShift(int, int);
+int test_logicalShift(int, int);
+int bitCount(int);
+int test_bitCount(int);
+int bang(int);
+int test_bang(int);
+int tmin();
+int test_tmin();
+int fitsBits(int, int);
+int test_fitsBits(int, int);
+int divpwr2(int, int);
+int test_divpwr2(int, int);
+int negate(int);
+int test_negate(int);
+int isPositive(int);
+int test_isPositive(int);
+int isLessOrEqual(int, int);
+int test_isLessOrEqual(int, int);
+int ilog2(int);
+int test_ilog2(int);
+unsigned float_neg(unsigned);
+unsigned test_float_neg(unsigned);
+unsigned float_i2f(int);
+unsigned test_float_i2f(int);
+unsigned float_twice(unsigned);
+unsigned test_float_twice(unsigned);

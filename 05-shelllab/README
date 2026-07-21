@@ -1,0 +1,21 @@
+################
+CS:APP Shell Lab
+################
+
+文件说明:
+
+Makefile	# 编译你的shell程序并运行测试
+README		# 本文件
+tsh.c		# 你将编写并提交的shell程序
+tshref		# 参考shell二进制文件
+
+# 以下文件用于测试你的shell
+sdriver.pl	# 基于trace文件的shell驱动程序
+trace*.txt	# 控制shell驱动程序的15个trace文件
+tshref.out 	# 参考shell在所有15个trace上的示例输出
+
+# 由trace文件调用的小型C程序
+myspin.c	# 接收参数<n>，自旋<n>秒
+mysplit.c	# fork一个子进程，自旋<n>秒
+mystop.c        # 自旋<n>秒后向自身发送SIGTSTP信号
+myint.c         # 自旋<n>秒后向自身发送SIGINT信号

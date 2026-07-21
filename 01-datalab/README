@@ -1,0 +1,120 @@
+***********************
+CS:APP Data Lab
+学生指南
+***********************
+
+你的目标是修改你的 bits.c 副本，使其通过 btest 中的所有测试，同时不违反任何编码规范。
+
+
+*********
+0. 文件:
+*********
+
+Makefile	- 构建 btest、fshow 和 ishow
+README		- 本文件
+bits.c		- 你将修改并提交的文件
+bits.h		- 头文件
+btest.c		- btest 主程序
+  btest.h	- 用于构建 btest
+  decl.c	- 用于构建 btest
+  tests.c       - 用于构建 btest
+  tests-header.c- 用于构建 btest
+dlc*		- 规则检查编译器（data lab compiler）
+driver.pl*	- 驱动程序，使用 btest 和 dlc 自动评分 bits.c
+Driverhdrs.pm   - 可选的"Beat the Prof"竞赛头文件
+fshow.c		- 用于检查 floating-point 表示的工具
+ishow.c		- 用于检查整数表示的工具
+
+***********************************************************
+1. 修改 bits.c 并使用 dlc 检查合规性
+***********************************************************
+
+重要提示：在开始之前，请仔细阅读 bits.c 文件中的说明。这些说明给出了你必须遵循的编码规则，否则将扣分。
+
+使用 dlc 编译器（./dlc）自动检查你的 bits.c 是否遵守编码规范：
+
+       unix> ./dlc bits.c
+
+如果你的代码没有问题，dlc 将静默返回。
+否则它会打印出标记问题的消息。使用 -e 选项运行 dlc：
+
+    	unix> ./dlc -e bits.c
+
+会使 dlc 打印每个函数使用的运算符数量计数。
+
+一旦你有了合法的解答，就可以使用 ./btest 程序测试其正确性。
+
+*********************
+2. 使用 btest 测试
+*********************
+
+本目录中的 Makefile 会将你的 bits.c 版本与附加代码一起编译，生成一个名为 btest 的程序（或测试框架）。
+
+要编译并运行 btest 程序，输入：
+
+    unix> make btest
+    unix> ./btest [可选命令行参数]
+
+每次修改你的 bits.c 程序后，你都需要重新编译 btest。当从一个平台迁移到另一个平台时，你应该删除旧版本的 btest 并生成一个新的。使用以下命令：
+
+    unix> make clean
+    unix> make btest
+
+Btest 通过对每个函数运行数百万个测试用例来测试你的代码的正确性。它会在众所周知的边界情况周围进行广泛测试，例如整数谜题中的 Tmin 和零，以及 floating point 谜题中的零、inf 以及 denormalized 和 normalized 数之间的边界。当 btest 在你的某个函数中检测到错误时，它会打印出失败的测试、不正确的结果和预期结果，然后终止该函数的测试。
+
+以下是 btest 的命令行选项：
+
+  unix> ./btest -h
+  Usage: ./btest [-hg] [-r <n>] [-f <name> [-1|-2|-3 <val>]*] [-T <time limit>]
+    -1 <val>  指定第一个函数参数
+    -2 <val>  指定第二个函数参数
+    -3 <val>  指定第三个函数参数
+    -f <name> 仅测试指定名称的函数
+    -g        格式化输出用于自动评分，不显示错误信息
+    -h        打印此帮助信息
+    -r <n>    为所有题目给定统一的权重 n
+    -T <lim>  设置超时限制为 lim
+
+示例：
+
+  测试所有函数的正确性并打印错误信息：
+  unix> ./btest
+
+  以紧凑形式测试所有函数，不显示错误信息：
+  unix> ./btest -g
+
+  测试函数 foo 的正确性：
+  unix> ./btest -f foo
+
+  使用特定参数测试函数 foo 的正确性：
+  unix> ./btest -f foo -1 27 -2 0xf
+
+Btest 不会检查你的代码是否符合编码规范。请使用 dlc 来做这件事。
+
+*******************
+3. 辅助程序
+*******************
+
+我们提供了 ishow 和 fshow 程序来帮助你分别解读整数和 floating point 的表示。每个程序接受一个十进制或十六进制数作为参数。要构建它们，输入：
+
+    unix> make
+
+使用示例：
+
+    unix> ./ishow 0x27
+    Hex = 0x00000027,	Signed = 39,	Unsigned = 39
+
+    unix> ./ishow 27
+    Hex = 0x0000001b,	Signed = 27,	Unsigned = 27
+
+    unix> ./fshow 0x15213243
+    Floating point value 3.255334057e-26
+    Bit Representation 0x15213243, sign = 0, exponent = 0x2a, fraction = 0x213243
+    Normalized.  +1.2593463659 X 2^(-85)
+
+    linux> ./fshow 15213243
+    Floating point value 2.131829405e-38
+    Bit Representation 0x00e822bb, sign = 0, exponent = 0x01, fraction = 0x6822bb
+    Normalized.  +1.8135598898 X 2^(-126)
+
+

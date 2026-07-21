@@ -1,0 +1,34 @@
+Tiny Web 服务器
+Dave O'Hallaron
+Carnegie Mellon University
+
+这是 Tiny 服务器的主目录，Tiny 是一个约 200 行的 Web 服务器，
+用于卡内基梅隆大学 "15-213: 计算机系统导论" 课程的教学。
+Tiny 使用 GET 方法从 ./ 目录提供静态内容（文本、HTML、GIF 和 JPG 文件），
+并通过运行 ./cgi-bin 中的 CGI 程序提供动态内容。
+默认页面为 home.html（而非 index.html），以便我们可以从浏览器中查看目录内容。
+
+Tiny 既不安全也不完善，但它能让学生了解真实的 Web 服务器是如何工作的。
+仅供教学使用。
+
+代码在 Linux 2.2.20 内核上使用 gcc 2.95.3 编译和运行良好。
+
+安装 Tiny：
+   在空白目录中输入 "tar xvf tiny.tar"。
+
+运行 Tiny：
+   在服务器机器上运行 "tiny <port>"，
+   例如 "tiny 8000"。
+   将浏览器指向 Tiny：
+       静态内容: http://<host>:8000
+       动态内容: http://<host>:8000/cgi-bin/adder?1&2
+
+文件：
+  tiny.tar             此目录中所有内容的归档文件
+  tiny.c               Tiny 服务器
+  Makefile             tiny.c 的 Makefile
+  home.html            测试 HTML 页面
+  godzilla.gif         home.html 中嵌入的图片
+  README               本文件
+  cgi-bin/adder.c      将两个数相加的 CGI 程序
+  cgi-bin/Makefile     adder.c 的 Makefile

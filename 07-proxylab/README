@@ -1,0 +1,42 @@
+####################################################################
+# CS:APP Proxy Lab
+#
+# 学生源文件
+####################################################################
+
+此目录包含 CS:APP Proxy Lab 所需的文件。
+
+proxy.c
+csapp.h
+csapp.c
+    这些是起始文件。csapp.c 和 csapp.h 在教材中有详细描述。
+
+    你可以对这些文件做任意修改。你也可以创建并提交任何额外文件。
+
+    请使用 `port-for-user.pl` 或 `free-port.sh` 为你的 proxy 或 tiny
+    服务器生成唯一端口号。
+
+Makefile
+    这是构建 proxy 程序的 makefile。输入 "make" 来构建你的解决方案，
+    或输入 "make clean" 后再 "make" 进行全新构建。
+
+    输入 "make handin" 来创建你要提交的 tarfile。你可以任意修改它。
+    你的教师将使用你的 Makefile 从源码构建你的 proxy。
+
+port-for-user.pl
+    为特定用户生成一个随机端口
+    用法: ./port-for-user.pl <userID>
+
+free-port.sh
+    用于识别一个未使用的 TCP 端口的便捷脚本，可分配给 proxy 或 tiny 使用。
+    用法: ./free-port.sh
+
+driver.sh
+    Basic、Concurrency 和 Cache 的自动评分器。
+    用法: ./driver.sh
+
+nop-server.py
+     自动评分器的辅助程序。
+
+tiny
+    CS:APP 教材中的 Tiny Web 服务器

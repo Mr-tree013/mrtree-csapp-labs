@@ -1,0 +1,52 @@
+#####################################################################
+# CS:APP Malloc Lab
+# 供学生使用的讲义文件
+#
+# Copyright (c) 2002, R. Bryant and D. O'Hallaron, All rights reserved.
+# May not be used, modified, or copied without permission.
+#
+######################################################################
+
+***********
+主要文件:
+***********
+
+mm.{c,h}
+	你的 malloc 解决方案。mm.c 是你要提交的文件，
+	也是你唯一需要修改的文件。
+
+mdriver.c
+	用于测试 mm.c 文件的 malloc 驱动程序
+
+short{1,2}-bal.rep
+	两个用于帮助你入门的小型 trace 文件
+
+Makefile
+	构建驱动程序
+
+**********************************
+驱动程序的其他辅助文件
+**********************************
+
+config.h	配置 malloc lab 驱动程序
+fsecs.{c,h}	不同计时器包的封装函数
+clock.{c,h}	访问 Pentium 和 Alpha 周期计数器的例程
+fcyc.{c,h}	基于周期计数器的计时函数
+ftimer.{c,h}	基于间隔计时器和 gettimeofday() 的计时函数
+memlib.{c,h}	模拟 heap 和 sbrk 函数
+
+*******************************
+构建和运行驱动程序
+*******************************
+要构建驱动程序，在 shell 中输入 "make"。
+
+要在小型测试 trace 上运行驱动程序：
+
+	unix> mdriver -V -f short1-bal.rep
+
+-V 选项会打印出有用的跟踪和摘要信息。
+
+要获取驱动程序的命令行选项列表：
+
+	unix> mdriver -h
+

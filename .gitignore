@@ -1,0 +1,17 @@
+# 编译产物
+*.o
+*.out
+
+# 可执行文件（在各 lab 目录中根据需要手动添加）
+# 以下为各 lab 编译产物，不纳入版本控制
+01-datalab/btest
+01-datalab/fshow
+01-datalab/ishow
+06-malloclab/mdriver
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

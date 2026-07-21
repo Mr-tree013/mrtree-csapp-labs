@@ -4,7 +4,7 @@
 typedef struct {
   int valid;
   unsigned long tag;
-  int lru_counter;  /* for LRU replacement */
+  int lru_counter;  /* 用于 LRU 替换 */
 } cache_line_t;
 
 typedef struct {
@@ -12,10 +12,10 @@ typedef struct {
 } cache_set_t;
 
 typedef struct {
-  int s;             /* set index bits */
-  int E;             /* associativity (lines per set) */
-  int b;             /* block offset bits */
-  int S;             /* number of sets = 2^s */
+  int s;             /* set 索引位数 */
+  int E;             /* 关联度（每个 set 的 line 数） */
+  int b;             /* block 偏移位数 */
+  int S;             /* set 数量 = 2^s */
   cache_set_t *sets;
 } cache_t;
 
