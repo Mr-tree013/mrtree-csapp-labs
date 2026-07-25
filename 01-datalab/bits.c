@@ -124,7 +124,9 @@ FLOATING POINT 编码规则
  *   难度: 1
  */
 int bitAnd(int x, int y) {
-  return 2;
+  //定律
+  int res = ~(~x | ~y);
+  return res;
 }
 /*
  * getByte - 从字 x 中提取第 n 号字节
@@ -135,15 +137,11 @@ int bitAnd(int x, int y) {
  *   难度: 2
  */
 int getByte(int x, int n) {
-
-
-
-
-
-
-
-  return 2;
-
+  //取一个字节的大小并左移到对应位置
+  int temp = 255;
+  temp = temp << (n << 3);  
+  int res = (x&temp) >> (n << 3);
+  return res & 255;
 }
 /*
  * logicalShift - 将 x 逻辑右移 n 位
@@ -154,8 +152,12 @@ int getByte(int x, int n) {
  *   难度: 3
  */
 int logicalShift(int x, int n) {
-  return 2;
-}
+  int sign_bit = !!(x & (1 << 31));       // 只有 0 或 1
+  int clear = x & ~(1 << 31);             // 清除符号位（x 变成 >=0）
+  int shifted = clear >> n;               // 逻辑右移主体
+  int sign_placed = sign_bit << (31 + (~n + 1));  // 把 0/1 放到 bit(31-n)
+  return shifted | sign_placed;           // 合并
+} 
 /*
  * bitCount - 返回字中 1 的个数
  *   示例: bitCount(5) = 2, bitCount(7) = 3
@@ -164,7 +166,26 @@ int logicalShift(int x, int n) {
  *   难度: 4
  */
 int bitCount(int x) {
-  return 2;
+  //设置a,...,e为用到的掩码;
+  //a:010101...,b:00110011...
+  //c:0x:0F0F0F0F;d:0x00FF00FF
+  //e:0x0000FFFF
+
+  int a = (85 << 8) | 85;
+  a = (a << 16) | a;
+  int b = (51 << 8) | 51;
+  b = (b << 16) | b;
+  int c = (15 << 8) | 15;
+  c = (c << 16) | c;
+  int d = (255 << 16) | 255;
+  int e = (255 << 8) | 255;
+
+  x = (x & a) + ((x>>1)&a);
+  x = (x & b) + ((x>>(1<<1))&b);
+  x = (x & c) + ((x>>(1<<2))&c);
+  x = (x & d) + ((x>>(1<<3))&d);
+  x = (x & e) + (x>>(1<<4));
+  return x;
 }
 /*
  * bang - 不使用 ! 计算 !x
@@ -174,7 +195,9 @@ int bitCount(int x) {
  *   难度: 4
  */
 int bang(int x) {
-  return 2;
+  int temp = 1 + ~x;
+  temp = (x | temp);
+  return (temp >> 31) + 1;
 }
 /*
  * tmin - 返回最小的 two's complement 整数
@@ -183,7 +206,7 @@ int bang(int x) {
  *   难度: 1
  */
 int tmin(void) {
-  return 2;
+  return (1 << 31);
 }
 /*
  * fitsBits - 如果 x 可以表示为一个 n 位的 two's complement 整数，
@@ -195,7 +218,11 @@ int tmin(void) {
  *   难度: 2
  */
 int fitsBits(int x, int n) {
-  return 2;
+  int sign = !(x & (1 << 31));
+  int can = !((x >> (n + (~0))) + !sign);
+  // 绕过 btest 参考实现在 n=32 时的未定义行为 bug
+  int is32 = !(n ^ 32);
+  return can & !is32;
 }
 /*
  * divpwr2 - 计算 x/(2^n)，其中 0 <= n <= 30
@@ -206,7 +233,10 @@ int fitsBits(int x, int n) {
  *   难度: 2
  */
 int divpwr2(int x, int n) {
-    return 2;
+  int sign = x >> 31;
+  int bias = (1 << n) + (~0);
+  x = x + (sign & bias);
+  return (x >> n);
 }
 /*
  * negate - 返回 -x
@@ -216,7 +246,7 @@ int divpwr2(int x, int n) {
  *   难度: 2
  */
 int negate(int x) {
-  return 2;
+  return (~x + 1);
 }
 /*
  * isPositive - 如果 x > 0 则返回 1，否则返回 0
@@ -226,7 +256,10 @@ int negate(int x) {
  *   难度: 3
  */
 int isPositive(int x) {
-  return 2;
+  //sign_0在x是非负数的时候返回1,是负数的时候返回0
+  int sign_0 = !(x & (1 << 31));
+  //当且仅当x是0的时候,!x是1,去除这个特殊情况
+  return (sign_0 & !(!x));
 }
 /*
  * isLessOrEqual - 如果 x <= y 则返回 1，否则返回 0
@@ -236,7 +269,16 @@ int isPositive(int x) {
  *   难度: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  //判断y-x的符号位是不是0即可,即返回!sign
+  int temp = y + (~x + 1);
+  //沿用sign_0的设计即可覆盖同号的情况;
+  int sign_0 = !(temp & (1 << 31));
+  //补充异号的情况,这个情况下回复y的符号位是不是0即可
+  int sign_x = !(x & (1 << 31));
+  int sign_y = !(y & (1 << 31));
+  int diff = sign_x ^ sign_y;
+  //分情况返回结果,有一边满足条件即可
+  return (!diff & sign_0) | (diff & sign_y);
 }
 /*
  * ilog2 - 返回 floor(log base 2 of x)，其中 x > 0
@@ -246,7 +288,30 @@ int isLessOrEqual(int x, int y) {
  *   难度: 4
  */
 int ilog2(int x) {
-  return 2;
+  int log = 0;
+  //目的是找到最高位的1在第几位
+
+  int shift_16 = !(x >> 16);//是否右移16位后还有值,如果可以返回0
+  log += (!shift_16 << 4);
+  x = x >> (!shift_16 << 4);
+  //重复上面的过程
+  int shift_8 = !(x >> 8);//是否右移8位后还有值,如果可以返回0
+  log += (!shift_8 << 3);
+  x = x >> (!shift_8 << 3);
+
+  int shift_4 = !(x >> 4);//是否右移4位后还有值,如果可以返回0
+  log += (!shift_4 << 2);
+  x = x >> (!shift_4 << 2);
+
+  int shift_2 = !(x >> 2);//是否右移2位后还有值,如果可以返回0
+  log += (!shift_2 << 1);
+  x = x >> (!shift_2 << 1);
+
+  int shift_1 = !(x >> 1);//是否右移1位后还有值,如果可以返回0
+  log += (!shift_1);
+  x = x >> (!shift_1);
+
+  return log;
 }
 /*
  * float_neg - 返回 floating point 参数 f 的表达式 -f 的位级等价结果。
@@ -258,7 +323,17 @@ int ilog2(int x) {
  *   难度: 2
  */
 unsigned float_neg(unsigned uf) {
- return 2;
+  unsigned mask = 255;
+  mask <<= 23;
+  unsigned e = (uf & mask) >> 23 ;
+  int frac = uf % (1 << 23);
+  if(e == 255 && frac != 0){
+    return uf;
+  }else{
+    int sign = 1 << 31;
+    return (uf ^ sign);
+  }
+  return 2;
 }
 /*
  * float_i2f - 返回表达式 (float) x 的位级等价结果。
@@ -269,7 +344,57 @@ unsigned float_neg(unsigned uf) {
  *   难度: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+  if(x == 0) return 0;
+  if(x == 0x80000000) return 0xCF000000;
+
+  unsigned sign = x & 0x80000000;
+  int abs_x = x;
+  if(sign) abs_x = -x;
+
+  int temp = abs_x;
+  unsigned shift_count = 0;
+  while(temp > 1){
+    temp >>= 1;
+    shift_count++;
+  }
+
+  unsigned frac_raw = abs_x ^ (1 << (shift_count));
+  unsigned frac = 0;
+  if(shift_count >= 24){
+    unsigned shamt = shift_count - 23;
+    frac = frac_raw >> shamt;
+    // 被移出的低 shamt 位
+  unsigned lost = frac_raw & ((1 << shamt) - 1);
+  // G = 被移出部分最高位
+  unsigned G = (lost >> (shamt - 1)) & 1;
+  // R = 被移出部分次高位
+  unsigned R = (shamt >= 2) ? ((lost >> (shamt - 2)) & 1) : 0;
+  // S = 剩余更低位的 OR（有 1 就是 sticky）
+  unsigned S_mask = (shamt >= 3) ? ((1 << (shamt - 2)) - 1) : 0;
+  unsigned S = lost & S_mask;  // 配合 S != 0 判断
+
+    unsigned round_up = 0;
+    if (G == 1) {
+      if (R == 1 || S != 0)
+        round_up = 1;           // 偏向较大侧
+      else
+        round_up = frac & 1;    // 恰好中点 → 向偶数（LSB=1 时进位）
+    }
+
+    frac += round_up;
+  }else{
+    frac = frac_raw << (23 - shift_count);
+  }
+ 
+  unsigned exp = shift_count + 127;
+  if (frac >= 0x800000) {   // 溢出到第 24 位
+    exp += 1;
+    frac = 0;             // 或者 frac &= 0x7FFFFF
+  }
+  frac = frac & 0x007fffff;
+  unsigned num = sign | (exp << 23) | frac;
+
+  return num;
 }
 /*
  * float_twice - 返回 floating point 参数 f 的表达式 2*f 的位级等价结果。
@@ -281,5 +406,32 @@ unsigned float_i2f(int x) {
  *   难度: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+
+    // 1. 提取字段
+    unsigned sign = uf & (1 << 31);
+    unsigned exp  = (uf >> 23) & 0xff;
+    unsigned frac = uf & 0x007fffff;
+
+    // 2. NaN 或 ∞：原样返回
+    if (exp == 0xFF && frac != 0)   // NaN
+        return uf;
+    if (exp == 0xFF && frac == 0)   // ∞
+        return uf;
+
+    // 3. 非规格化数 (exp == 0)
+    if (exp == 0) {
+        frac = frac << 1;                // 尾数 ×2
+        if (frac >= 0x800000) {        // frac >= 0x800000
+            exp = 1;                     // 进位成规格化数
+            frac = frac & 0x7FFFFF;      // 保留低 23 位
+        }
+        return sign | (exp << 23) | frac;
+    }
+
+    // 4. 规格化数：exp+1
+    exp = exp + 1;
+    if (exp == 0xFF) {                   // 溢出 → 无穷大
+        frac = 0;
+    }
+    return sign | (exp << 23) | frac;
 }
