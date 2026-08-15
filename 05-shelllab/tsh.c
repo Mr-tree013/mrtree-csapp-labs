@@ -164,6 +164,79 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline)
 {
+    char *argv[MAXARGS];      /* 解析后的参数数组，argv[0] 为命令名 */
+    char buf[MAXLINE];        /* cmdline 的本地副本，供 parseline 破坏式解析 */
+    int bg;                   /* 1=后台作业，0=前台作业 */
+    pid_t pid;                /* fork 出的子进程 PID */
+    sigset_t mask_one, prev_one; /* mask_one: 仅含 SIGCHLD；prev_one: 修改前的掩码 */
+
+    /* parseline 会把 buf 里的分隔符改成 '\0'，所以要复制一份，保留原始 cmdline */
+    strcpy(buf, cmdline);
+    bg = parseline(buf, argv);
+
+    /* 空行或孤立的 '&'：parseline 解析后 argc=0（argv[0]==NULL），直接忽略 */
+    if (argv[0] == NULL)
+        return;
+
+    /* 内置命令（quit/jobs/bg/fg）不 fork，直接在当前 shell 进程内执行 */
+    if (!builtin_cmd(argv)) {
+
+        /*
+         * 竞态条件处理（本 lab 最核心的一点）：
+         * 若不先屏蔽 SIGCHLD 就 fork，子进程可能在父进程执行 addjob 之前
+         * 就已终止并向父进程投递 SIGCHLD。此时 sigchld_handler 会尝试
+         * deletejob 一个尚未加入列表的作业（删除失败、什么都不做）；随后
+         * 父进程又把这个"已经死掉"的作业 addjob 进列表 —— 结果列表里
+         * 残留一个永远无法回收的僵尸作业。
+         *
+         * 解法：fork 之前屏蔽 SIGCHLD，等父进程安全完成 addjob 后再恢复。
+         * 期间即使子进程很快退出，SIGCHLD 也只是处于 pending（挂起）状态，
+         * 直到 addjob 完成、恢复掩码后才被投递给 handler。
+         */
+        sigemptyset(&mask_one);
+        sigaddset(&mask_one, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
+
+        if ((pid = fork()) == 0) {
+            /* ---- 子进程分支 ---- */
+
+            /* 恢复信号掩码：子进程不应继承"SIGCHLD 被屏蔽"这个临时状态 */
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+            /*
+             * 让子进程自成新的进程组，组 ID = 子进程 PID。
+             * 这样父进程用 kill(-pid, sig) 就能把信号发给整组进程，
+             * 既不会误伤 shell 自己，也不会影响其它后台作业。
+             */
+            setpgid(0, 0);
+
+            /* 用新程序覆盖子进程映像；失败则打印错误并退出（不能继续 shell 循环） */
+            if (execve(argv[0], argv, environ) < 0) {
+                printf("%s: Command not found\n", argv[0]);
+                exit(0);
+            }
+        }
+
+        /* ---- 父进程分支 ---- */
+
+        /* 此刻 SIGCHLD 仍被屏蔽，addjob 是安全的：前台记 FG，后台记 BG */
+        if (!bg)
+            addjob(jobs, pid, FG, cmdline);
+        else
+            addjob(jobs, pid, BG, cmdline);
+
+        /* 作业已安全入列，恢复原信号掩码（解除对 SIGCHLD 的屏蔽） */
+        sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+        if (!bg) {
+            /* 前台作业：阻塞等待它结束（期间由 sigchld_handler 负责回收并删除） */
+            waitfg(pid);
+        }
+        else {
+            /* 后台作业：不等待，打印作业信息后立即返回，继续读下一条命令 */
+            printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+        }
+    }
     return;
 }
 
@@ -229,7 +302,28 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv)
 {
-    return 0;     /* 不是内置命令 */
+    /* quit：立即退出 shell */
+    if (!strcmp(argv[0], "quit"))
+        exit(0);
+
+    /* 孤立的 '&'：视为空命令，直接吞掉（返回 1 表示"已处理，不再 fork"） */
+    if (!strcmp(argv[0], "&"))
+        return 1;
+
+    /* jobs：打印作业列表 */
+    if (!strcmp(argv[0], "jobs")) {
+        listjobs(jobs);
+        return 1;
+    }
+
+    /* bg / fg：交给 do_bgfg 处理 */
+    if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+        do_bgfg(argv);
+        return 1;
+    }
+
+    /* 不是内置命令，返回 0，让 eval 走 fork + execve 路径 */
+    return 0;
 }
 
 /*
@@ -237,6 +331,62 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv)
 {
+    struct job_t *job;   /* 目标作业 */
+    int id;              /* 解析出的 PID 或 JID */
+    pid_t pid;
+
+    /* bg/fg 必须带参数 */
+    if (argv[1] == NULL) {
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+        return;
+    }
+
+    /* 参数以 '%' 开头 → 按作业 ID（JID）解析；否则按进程 ID（PID）解析 */
+    if (argv[1][0] == '%') {
+        id = atoi(&argv[1][1]);       /* 跳过 '%'，把剩余部分转成数字 */
+        if (id <= 0) {                /* atoi 对非数字返回 0，JID 从 1 开始 */
+            printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+        job = getjobjid(jobs, id);
+        if (job == NULL) {
+            printf("%%%d: No such job\n", id);
+            return;
+        }
+    }
+    else {
+        id = atoi(argv[1]);
+        if (id <= 0) {
+            printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+        job = getjobpid(jobs, id);
+        if (job == NULL) {
+            printf("(%d): No such process\n", id);
+            return;
+        }
+    }
+
+    pid = job->pid;
+
+    /*
+     * 向作业所在进程组发送 SIGCONT，唤醒被停止的进程。
+     * 注意第一个参数是 -pid（负数）：负数在 kill 中表示"进程组"而非单个进程。
+     * 因为一个作业可能由多个进程组成（例如 mysplit 会 fork 子进程），
+     * 只对单个 pid 发信号无法唤醒整组，必须对整个进程组广播。
+     */
+    kill(-pid, SIGCONT);
+
+    if (!strcmp(argv[0], "bg")) {
+        /* 转为后台：改状态并打印，不等待 */
+        job->state = BG;
+        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+    }
+    else { /* fg */
+        /* 转为前台：改状态后阻塞等待它结束/被停止 */
+        job->state = FG;
+        waitfg(pid);
+    }
     return;
 }
 
@@ -245,6 +395,37 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    sigset_t mask, prev;
+
+    /*
+     * 阻塞等待，直到 pid 不再处于前台（被回收删除，或被 Ctrl-Z 停止）。
+     *
+     * 实现要点——用 sigsuspend 原子挂起，而不是忙等或 sleep：
+     *   忙等 while(fgpid(jobs)==pid); 会空转占满 CPU；
+     *   sleep 则要轮询，响应有延迟且时间粒度粗。
+     *   sigsuspend 能原子地"替换信号掩码 + 挂起"，当 SIGCHLD 到达时被唤醒，
+     *   与"子进程被回收"这件事精确同步。
+     *
+     * 为什么先屏蔽 SIGCHLD 再进入循环？
+     *   这是"检查-再挂起"的经典写法，用来消除竞态：
+     *   若先检查 fgpid、再调用 sigsuspend，两次操作之间可能恰好漏掉一次
+     *   SIGCHLD（信号在中间到达，handler 已删掉作业），随后 sigsuspend
+     *   却再也等不到下一个信号，导致 shell 永久阻塞。
+     *   先屏蔽 SIGCHLD 后：进入 sigsuspend 前信号只会 pending；
+     *   一旦在 sigsuspend 中临时解除屏蔽，pending 的 SIGCHLD 立即投递、
+     *   handler 回收子进程并删除作业，sigsuspend 返回，循环再检查
+     *   fgpid 便发现它已经退场。
+     */
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, &prev);   /* prev 记录旧掩码（此时 SIGCHLD 未屏蔽） */
+
+    while (fgpid(jobs) == pid) {
+        /* 临时用 prev 替换掩码（SIGCHLD 恢复未屏蔽）并挂起，直到有信号到达 */
+        sigsuspend(&prev);
+    }
+
+    sigprocmask(SIG_SETMASK, &prev, NULL);
     return;
 }
 
@@ -260,6 +441,47 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
+    int olderrno = errno;          /* 保存 errno，结束时恢复，避免干扰主流程 */
+    sigset_t mask_all, prev_all;
+    pid_t pid;
+    int status;
+
+    /* 屏蔽所有信号后再操作共享的作业列表 jobs[]，防止与其它 handler
+     * 或主流程并发修改 jobs 造成数据不一致 */
+    sigfillset(&mask_all);
+
+    /*
+     * 循环回收子进程。waitpid 参数含义：
+     *   -1       : 回收"任意"子进程（而不只是一个）
+     *   WNOHANG  : 非阻塞，没有已终止/停止的子进程时立即返回 0，不卡住 shell
+     *   WUNTRACED: 除了"终止"，也报告"被停止"的子进程（Ctrl-Z 正需要它）
+     * 返回值 >0 表示回收到一个子进程；<=0 表示没有更多可回收的，循环结束。
+     */
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+
+        if (WIFEXITED(status)) {
+            /* 子进程正常退出：从作业列表删除 */
+            deletejob(jobs, pid);
+        }
+        else if (WIFSIGNALED(status)) {
+            /* 子进程被信号杀死：打印信息，并从作业列表删除 */
+            printf("Job [%d] (%d) terminated by signal %d\n",
+                   pid2jid(pid), pid, WTERMSIG(status));
+            deletejob(jobs, pid);
+        }
+        else if (WIFSTOPPED(status)) {
+            /* 子进程被信号停止（Ctrl-Z 或 mystop）：打印信息，状态改为 ST，
+             * 但【不删除】——它只是暂停，之后可用 bg/fg 唤醒 */
+            printf("Job [%d] (%d) stopped by signal %d\n",
+                   pid2jid(pid), pid, WSTOPSIG(status));
+            getjobpid(jobs, pid)->state = ST;
+        }
+
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    }
+
+    errno = olderrno;
     return;
 }
 
@@ -269,6 +491,21 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig)
 {
+    int olderrno = errno;
+    pid_t pid;
+
+    /* 取当前前台作业的 PID；没有前台作业时 fgpid 返回 0 */
+    pid = fgpid(jobs);
+
+    /*
+     * 用 kill(-pid, SIGINT) 把 SIGINT 转发给整个前台进程组。
+     * 负数 pid 表示"进程组"：组内所有进程（含 fork 出的子进程）都收到，
+     * 从而整体终止，而不是只有组长进程被杀死。
+     */
+    if (pid != 0)
+        kill(-pid, SIGINT);
+
+    errno = olderrno;
     return;
 }
 
@@ -279,6 +516,22 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
+    int olderrno = errno;
+    pid_t pid;
+
+    /* 取当前前台作业的 PID；没有前台作业时 fgpid 返回 0 */
+    pid = fgpid(jobs);
+
+    /*
+     * 用 kill(-pid, SIGTSTP) 把 SIGTSTP 转发给整个前台进程组，
+     * 让前台作业（连同其子进程）整体挂起。
+     * 实际的"状态改 ST"由随后到达的 SIGCHLD → sigchld_handler 完成：
+     * 被停止的子进程会触发 waitpid 的 WUNTRACED 返回。
+     */
+    if (pid != 0)
+        kill(-pid, SIGTSTP);
+
+    errno = olderrno;
     return;
 }
 
